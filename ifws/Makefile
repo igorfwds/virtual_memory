@@ -1,4 +1,4 @@
-vm: vm.c
+all: vm.c
 	gcc -o vm vm.c
 
 clean:
