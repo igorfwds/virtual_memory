@@ -19,7 +19,7 @@ typedef struct memo_address
 void count_file_lines(char *line, FILE *ptr_file, int *lines);
 void read_address(FILE *file, memo_address **address);
 void add_to_tlb(memo_address **tlb, memo_address **tail_tlb, int page_number, memo_address **current);
-void remove_from_tlb(memo_address **tlb, memo_address **tail_tlb, memo_address **current);
+void remove_from_tlb(memo_address **tlb, memo_address **tail_tlb);
 void add_to_page_table(memo_address **pt, memo_address **tail_pt, int page_number, memo_address **current);
 void remove_from_page_table(memo_address **pt, memo_address **tail_pt, int position);
 int check_list(memo_address *list, int page_number);
@@ -76,7 +76,7 @@ int main(int argc, char **argv)
                 current_address->tlb_position = page_table_tail->tlb_position ;
                 if (current_address->tlb_position > 15)
                 {
-                    remove_from_tlb(&tlb, &tlb_tail, &current_address);
+                    remove_from_tlb(&tlb, &tlb_tail);
                 }
             }
             else //PAGE FAULT
@@ -89,7 +89,7 @@ int main(int argc, char **argv)
                 add_to_tlb(&tlb, &tlb_tail, current_address->page_number, &current_address);
                 if (current_address->tlb_position > 15)
                 {
-                    remove_from_tlb(&tlb, &tlb_tail, &current_address);
+                    remove_from_tlb(&tlb, &tlb_tail);
                 }
                 page_faults++;
             }
@@ -156,7 +156,7 @@ void add_to_tlb(memo_address **tlb, memo_address **tail_tlb, int page_number, me
     (*current)->tlb_position = new_node->tlb_position;
 }
 
-void remove_from_tlb(memo_address **tlb, memo_address **tail_tlb, memo_address **current)
+void remove_from_tlb(memo_address **tlb, memo_address **tail_tlb)
 {
     if (*tlb == NULL)
     {
@@ -182,7 +182,6 @@ void remove_from_tlb(memo_address **tlb, memo_address **tail_tlb, memo_address *
         (aux)->tlb_position--;
         aux = (aux)->next;
     }
-    (*current)->tlb_position = (*tail_tlb)->tlb_position;
 }
 void add_to_page_table(memo_address **pt, memo_address **tail_pt, int page_number, memo_address **current)
 {
@@ -263,10 +262,10 @@ void remove_from_page_table(memo_address **pt, memo_address **tail_pt, int posit
         }
     }
 
-    memo_address *current = *pt;
-    while (current != NULL) {
-        current->pt_position--;
-        current = current->next;
+    memo_address *aux = *pt;
+    while (aux != NULL) {
+        aux->pt_position--;
+        aux = aux->next;
     }
 }
 
@@ -280,8 +279,8 @@ int check_list(memo_address *list, int page_number)
         {
             return position;
         }
-        current = current->next;
         position++;
+        current = current->next;
     }
     return -1;
 }
