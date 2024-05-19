@@ -20,6 +20,7 @@ void count_file_lines(char *line, FILE *ptr_file, int *lines);
 void read_address(FILE *file, memo_address **address);
 void add_to_tlb(memo_address **tlb, memo_address **tail_tlb, int page_number);
 void remove_from_tlb(memo_address **tlb, memo_address **tail_tlb);
+void add_to_page_table(memo_address **pt, memo_address **tail_pt, int page_number, memo_address **current);
 void remove_from_page_table(memo_address **pt, memo_address **tail_pt, int position);
 int check_list(memo_address *list, int page_number);
 void read_binary_file(const char *filename, memo_address *current_address);
@@ -28,11 +29,11 @@ int main(int argc, char **argv)
 {
     int i, tlb_position, pt_position;
     int tlb_hit = 0;
-    int tlb_hit_rate;
+    float tlb_hit_rate;
     char *line = (char *)malloc(1000000 * sizeof(char));
     int lines = 0;
     int page_faults = 0;
-    int page_fault_rate;
+    float page_fault_rate;
 
     memo_address *current_address = (memo_address *)malloc(sizeof(memo_address));
     memo_address *tlb = NULL;
@@ -60,28 +61,40 @@ int main(int argc, char **argv)
         read_address(ptr_file, &current_address);
         printf("\nVirtual address: %d ", current_address->virtual_address);
         tlb_position = check_list(tlb, current_address->page_number);
-        if (tlb_position <= 15 && tlb_position >= 0)
+        if (tlb_position <= 15 && tlb_position >= 0)//TLB HIT
         {
             tlb_hit++;
             current_address->tlb_position = tlb_position;
         }
-        else
+        else //TLB MISS
         {
             pt_position = check_list(page_table, current_address->page_number);
-            if (pt_position <= 127 && pt_position >= 0)
+            if (pt_position <= 127 && pt_position >= 0) //PAGE TABLE HIT
             {
-                current_address->pt_position = pt_position;
                 add_to_tlb(&tlb, &tlb_tail, current_address->page_number);
-                if(current_address->tlb_position > 15)
+                current_address->pt_position = page_table_tail->pt_position ;
+                current_address->tlb_position = page_table_tail->tlb_position ;
+                if (current_address->tlb_position > 15)
                 {
                     remove_from_tlb(&tlb, &tlb_tail);
                 }
             }
-            else
+            else //PAGE FAULT
             {
+                add_to_page_table(&page_table, &page_table_tail, current_address->page_number, &current_address);
+                if(current_address->pt_position > 127)
+                {
+                    remove_from_page_table(&page_table, &page_table_tail, 0);
+                }
+                add_to_tlb(&tlb, &tlb_tail, current_address->page_number);
+                if (current_address->tlb_position > 15)
+                {
+                    remove_from_tlb(&tlb, &tlb_tail);
+                }
                 page_faults++;
             }
         }
+        // printf("\n\tPT POSITION: %d\n", current_address->pt_position);
 
         current_address->physical_address = current_address->page_offset + ((current_address->pt_position) * 256);
         read_binary_file("BACKING_STORE.bin", current_address);
@@ -89,17 +102,17 @@ int main(int argc, char **argv)
         printf("Physical address: %d ", current_address->physical_address);
         printf("Value: %d", current_address->value);
     }
+    fclose(ptr_file);
 
-    page_fault_rate = page_faults / lines;
-    tlb_hit_rate = tlb_hit / lines;
+    page_fault_rate = ((float)page_faults/lines);
+    tlb_hit_rate = ((float)tlb_hit/lines);
 
     printf("\nNumber of Translated Addresses = %d", lines);
     printf("\nPage Faults = %d", page_faults);
-    printf("\nPage Fault Rate = %d", page_fault_rate);
+    printf("\nPage Fault Rate = %.3f", page_fault_rate);
     printf("\nTLB Hits = %d", tlb_hit);
-    printf("\nTLB Hit Rate = %d", tlb_hit_rate);
+    printf("\nTLB Hit Rate = %.3f", tlb_hit_rate);
 
-    fclose(ptr_file);
 
     return 0;
 }
@@ -167,23 +180,32 @@ void remove_from_tlb(memo_address **tlb, memo_address **tail_tlb)
         current = current->next;
     }
 }
-
-void add_to_page_table(memo_address **pt, memo_address **tail_pt, int page_number, int pt_position)
+void add_to_page_table(memo_address **pt, memo_address **tail_pt, int page_number, memo_address **current)
 {
     memo_address *new_node = (memo_address *)malloc(sizeof(memo_address));
     new_node->page_number = page_number;
-    new_node->pt_position = pt_position;
     new_node->next = NULL;
-    if (*tail_pt != NULL)
+    new_node->prev = *tail_pt;
+
+    if(new_node != NULL)
     {
-        (*tail_pt)->next = new_node;
-        new_node->prev = *tail_pt;
+        if(*pt == NULL)
+        {
+            new_node->pt_position = 0;
+            *pt = new_node;
+            (*tail_pt) = new_node;
+            new_node->prev = NULL;
+        }
+        else
+        {
+            new_node->pt_position = (*tail_pt)->pt_position + 1;
+            (*tail_pt)->next = new_node;
+            new_node->prev = *tail_pt;
+            (*tail_pt) = new_node;
+        }
+        new_node->next = NULL;
     }
-    else
-    {
-        *pt = new_node;
-    }
-    *tail_pt = new_node;
+    (*current)->pt_position = new_node->pt_position;
 }
 
 void remove_from_page_table(memo_address **pt, memo_address **tail_pt, int position)
@@ -208,32 +230,39 @@ void remove_from_page_table(memo_address **pt, memo_address **tail_pt, int posit
             *tail_pt = NULL;
         }
         free(temp);
-        return;
-    }
-
-    for (int i = 0; temp != NULL && i < position - 1; i++)
-    {
-        temp = temp->next;
-    }
-
-    if (temp == NULL || temp->next == NULL)
-    {
-        return;
-    }
-
-    memo_address *next = temp->next->next;
-
-    free(temp->next);
-
-    temp->next = next;
-
-    if (next != NULL)
-    {
-        next->prev = temp;
     }
     else
     {
-        *tail_pt = temp;
+        for (int i = 0; temp != NULL && i < position - 1; i++)
+        {
+            temp = temp->next;
+        }
+
+        if (temp == NULL || temp->next == NULL)
+        {
+            return;
+        }
+
+        memo_address *next = temp->next->next;
+
+        free(temp->next);
+
+        temp->next = next;
+
+        if (next != NULL)
+        {
+            next->prev = temp;
+        }
+        else
+        {
+            *tail_pt = temp;
+        }
+    }
+
+    memo_address *current = *pt;
+    while (current != NULL) {
+        current->pt_position--;
+        current = current->next;
     }
 }
 
