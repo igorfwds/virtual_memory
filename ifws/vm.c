@@ -117,25 +117,32 @@ int check_tlb(memo_address **address, memo_address *tlb, int *tlb_hit)
     return position + 16;
 }
 
-void read_binary_file(const char *filename, memo_address *current_address)
-{
+void read_binary_file(const char *filename, memo_address *current_address) {
     FILE *binary_file = fopen(filename, "r");
-    if (binary_file == NULL)
-    {
+    if (binary_file == NULL) {
         printf("Erro ao abrir o arquivo.\n");
         return;
     }
 
-    if (fseek(binary_file, current_address->virtual_address, SEEK_SET) != 0)
-    {
+    if (fseek(binary_file, current_address->virtual_address, SEEK_SET) != 0) {
         printf("Erro ao mover o ponteiro do arquivo.\n");
         return;
     }
 
-    if (fread(&(current_address->value), sizeof(current_address->value), 1, binary_file) != 1)
-    {
+    unsigned char buffer;
+    if (fread(&buffer, sizeof(buffer), 1, binary_file) != 1) {
         printf("Erro ao ler o valor.\n");
         return;
+    }
+
+    // Verifique se o bit mais significativo está definido
+    if (buffer & 0x80) {
+        // Se o bit mais significativo estiver definido, o número é negativo
+        // Calcule o complemento de dois
+        current_address->value = (int)buffer - 0x100;
+    } else {
+        // Se o bit mais significativo não estiver definido, o número é positivo
+        current_address->value = (int)buffer;
     }
 
     fclose(binary_file);
