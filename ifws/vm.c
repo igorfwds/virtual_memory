@@ -11,17 +11,22 @@ typedef struct memo_address
     int tlb_position;
     int pt_position;
     int value;
+    struct memo_address *next;
+    struct memo_address *prev;
 
 } memo_address;
 
 void count_file_lines(char *line, FILE *ptr_file, int *lines);
 void read_address(FILE *file, memo_address **address);
-int check_tlb(memo_address **address, memo_address *tlb, int *tlb_hit);
+void add_to_tlb(memo_address **tlb, memo_address **tail_tlb, int page_number);
+void remove_from_tlb(memo_address **tlb, memo_address **tail_tlb);
+void remove_from_page_table(memo_address **pt, memo_address **tail_pt, int position);
+int check_list(memo_address *list, int page_number);
 void read_binary_file(const char *filename, memo_address *current_address);
 
 int main(int argc, char **argv)
 {
-    int i;
+    int i, tlb_position, pt_position;
     int tlb_hit = 0;
     int tlb_hit_rate;
     char *line = (char *)malloc(1000000 * sizeof(char));
@@ -30,13 +35,10 @@ int main(int argc, char **argv)
     int page_fault_rate;
 
     memo_address *current_address = (memo_address *)malloc(sizeof(memo_address));
-    memo_address *tlb = (memo_address *)malloc(16 * sizeof(memo_address));
-    memo_address *pt = (memo_address *)malloc(128 * sizeof(memo_address));
-
-    for (int i = 0; i < 16; i++)
-    {
-        tlb[i].page_number = -1;
-    }
+    memo_address *tlb = NULL;
+    memo_address *tlb_tail = NULL;
+    memo_address *page_table = NULL;
+    memo_address *page_table_tail = NULL;
 
     if (argc < 2)
     {
@@ -57,31 +59,34 @@ int main(int argc, char **argv)
     {
         read_address(ptr_file, &current_address);
         printf("\nVirtual address: %d ", current_address->virtual_address);
-        int tlb_position = check_tlb(&current_address, tlb, &tlb_hit);
+        tlb_position = check_list(tlb, current_address->page_number);
         if (tlb_position <= 15 && tlb_position >= 0)
         {
-            printf("TLB: %d ", current_address->tlb_position);
-            current_address->physical_address = current_address->page_offset + ((current_address->pt_position) * 128);
-            printf("Physical address: %d ", current_address->physical_address);
+            tlb_hit++;
+            current_address->tlb_position = tlb_position;
         }
         else
         {
-            int pt_position = check_pt(&current_address, pt, &page_faults);
+            pt_position = check_list(page_table, current_address->page_number);
             if (pt_position <= 127 && pt_position >= 0)
             {
-                current_address->physical_address = current_address->page_offset + ((current_address->pt_position) * 128);
-                //fazer funcao para escrever na tabela de paginas
-                printf("Physical address: %d ", current_address->physical_address);
+                current_address->pt_position = pt_position;
+                add_to_tlb(&tlb, &tlb_tail, current_address->page_number);
+                if(current_address->tlb_position > 15)
+                {
+                    remove_from_tlb(&tlb, &tlb_tail);
+                }
             }
             else
             {
-                printf("PT: %d ", current_address->pt_position);
-                current_address->physical_address = current_address->page_offset + ((current_address->pt_position) * 128);
-                printf("Physical address: %d ", current_address->physical_address);
+                page_faults++;
             }
         }
 
+        current_address->physical_address = current_address->page_offset + ((current_address->pt_position) * 256);
         read_binary_file("BACKING_STORE.bin", current_address);
+        printf("TLB: %d ", current_address->tlb_position);
+        printf("Physical address: %d ", current_address->physical_address);
         printf("Value: %d", current_address->value);
     }
 
@@ -108,7 +113,6 @@ void count_file_lines(char *line, FILE *ptr_file, int *lines)
     }
     rewind(ptr_file);
 }
-
 void read_address(FILE *file, memo_address **address)
 {
     fscanf(file, "%d", &((*address)->virtual_address));
@@ -118,34 +122,135 @@ void read_address(FILE *file, memo_address **address)
     // printf("%d %d", (*address)->page_number, (*address)->page_offset );
 }
 
-int check_tlb(memo_address **address, memo_address *tlb, int *tlb_hit)
+void add_to_tlb(memo_address **tlb, memo_address **tail_tlb, int page_number)
 {
-    int position = 0;
-    for (position; position < 16; position++)
+    memo_address *new_node = (memo_address *)malloc(sizeof(memo_address));
+    new_node->page_number = page_number;
+    new_node->next = NULL;
+    if (*tail_tlb != NULL)
     {
-        if ((*address)->page_number == (tlb[position]).page_number)
-        {
-            *tlb_hit += 1;
-            return position;
-        }
+        new_node->tlb_position = (*tail_tlb)->tlb_position + 1;
+        (*tail_tlb)->next = new_node;
+        new_node->prev = *tail_tlb;
     }
-
-    return position + 16;
+    else
+    {
+        new_node->tlb_position = 0;
+        *tlb = new_node;
+    }
+    *tail_tlb = new_node;
 }
 
-int check_pt(memo_address **address, memo_address *pt, int *page_faults)
+void remove_from_tlb(memo_address **tlb, memo_address **tail_tlb)
 {
-    int position = 0;
-    for (position; position < 128; position++)
+    if (*tlb == NULL)
     {
-        if ((*address)->page_number == (pt[position]).page_number)
+        printf("TLB está vazia.\n");
+        return;
+    }
+
+    memo_address *temp = *tlb;
+    *tlb = (*tlb)->next;
+    if (*tlb != NULL)
+    {
+        (*tlb)->prev = NULL;
+    }
+    else
+    {
+        *tail_tlb = NULL;
+    }
+    free(temp);
+    memo_address *current = *tlb;
+    while (current != NULL)
+    {
+        current->tlb_position--;
+        current = current->next;
+    }
+}
+
+void add_to_page_table(memo_address **pt, memo_address **tail_pt, int page_number, int pt_position)
+{
+    memo_address *new_node = (memo_address *)malloc(sizeof(memo_address));
+    new_node->page_number = page_number;
+    new_node->pt_position = pt_position;
+    new_node->next = NULL;
+    if (*tail_pt != NULL)
+    {
+        (*tail_pt)->next = new_node;
+        new_node->prev = *tail_pt;
+    }
+    else
+    {
+        *pt = new_node;
+    }
+    *tail_pt = new_node;
+}
+
+void remove_from_page_table(memo_address **pt, memo_address **tail_pt, int position)
+{
+    if (*pt == NULL)
+    {
+        printf("A tabela de páginas está vazia.\n");
+        return;
+    }
+
+    memo_address *temp = *pt;
+
+    if (position == 0)
+    {
+        *pt = temp->next;
+        if (*pt != NULL)
+        {
+            (*pt)->prev = NULL;
+        }
+        else
+        {
+            *tail_pt = NULL;
+        }
+        free(temp);
+        return;
+    }
+
+    for (int i = 0; temp != NULL && i < position - 1; i++)
+    {
+        temp = temp->next;
+    }
+
+    if (temp == NULL || temp->next == NULL)
+    {
+        return;
+    }
+
+    memo_address *next = temp->next->next;
+
+    free(temp->next);
+
+    temp->next = next;
+
+    if (next != NULL)
+    {
+        next->prev = temp;
+    }
+    else
+    {
+        *tail_pt = temp;
+    }
+}
+
+int check_list(memo_address *list, int page_number)
+{
+    memo_address *current = list;
+    int position = 0;
+    while (current != NULL)
+    {
+        if (current->page_number == page_number)
         {
             return position;
         }
+        current = current->next;
+        position++;
     }
-
-    *page_faults += 1;
-    return position + 128;
+    return -1;
 }
 
 void read_binary_file(const char *filename, memo_address *current_address)
@@ -170,16 +275,12 @@ void read_binary_file(const char *filename, memo_address *current_address)
         return;
     }
 
-    // Verifique se o bit mais significativo está definido
     if (buffer & 0x80)
     {
-        // Se o bit mais significativo estiver definido, o número é negativo
-        // Calcule o complemento de dois
         current_address->value = (int)buffer - 0x100;
     }
     else
     {
-        // Se o bit mais significativo não estiver definido, o número é positivo
         current_address->value = (int)buffer;
     }
 
