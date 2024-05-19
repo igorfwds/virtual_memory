@@ -58,11 +58,27 @@ int main(int argc, char **argv)
         read_address(ptr_file, &current_address);
         printf("\nVirtual address: %d ", current_address->virtual_address);
         int tlb_position = check_tlb(&current_address, tlb, &tlb_hit);
-        if (tlb_position <= 15)
+        if (tlb_position <= 15 && tlb_position >= 0)
         {
             printf("TLB: %d ", current_address->tlb_position);
             current_address->physical_address = current_address->page_offset + ((current_address->pt_position) * 128);
             printf("Physical address: %d ", current_address->physical_address);
+        }
+        else
+        {
+            int pt_position = check_pt(&current_address, pt, &page_faults);
+            if (pt_position <= 127 && pt_position >= 0)
+            {
+                current_address->physical_address = current_address->page_offset + ((current_address->pt_position) * 128);
+                //fazer funcao para escrever na tabela de paginas
+                printf("Physical address: %d ", current_address->physical_address);
+            }
+            else
+            {
+                printf("PT: %d ", current_address->pt_position);
+                current_address->physical_address = current_address->page_offset + ((current_address->pt_position) * 128);
+                printf("Physical address: %d ", current_address->physical_address);
+            }
         }
 
         read_binary_file("BACKING_STORE.bin", current_address);
@@ -117,30 +133,52 @@ int check_tlb(memo_address **address, memo_address *tlb, int *tlb_hit)
     return position + 16;
 }
 
-void read_binary_file(const char *filename, memo_address *current_address) {
+int check_pt(memo_address **address, memo_address *pt, int *page_faults)
+{
+    int position = 0;
+    for (position; position < 128; position++)
+    {
+        if ((*address)->page_number == (pt[position]).page_number)
+        {
+            return position;
+        }
+    }
+
+    *page_faults += 1;
+    return position + 128;
+}
+
+void read_binary_file(const char *filename, memo_address *current_address)
+{
     FILE *binary_file = fopen(filename, "r");
-    if (binary_file == NULL) {
+    if (binary_file == NULL)
+    {
         printf("Erro ao abrir o arquivo.\n");
         return;
     }
 
-    if (fseek(binary_file, current_address->virtual_address, SEEK_SET) != 0) {
+    if (fseek(binary_file, current_address->virtual_address, SEEK_SET) != 0)
+    {
         printf("Erro ao mover o ponteiro do arquivo.\n");
         return;
     }
 
     unsigned char buffer;
-    if (fread(&buffer, sizeof(buffer), 1, binary_file) != 1) {
+    if (fread(&buffer, sizeof(buffer), 1, binary_file) != 1)
+    {
         printf("Erro ao ler o valor.\n");
         return;
     }
 
     // Verifique se o bit mais significativo está definido
-    if (buffer & 0x80) {
+    if (buffer & 0x80)
+    {
         // Se o bit mais significativo estiver definido, o número é negativo
         // Calcule o complemento de dois
         current_address->value = (int)buffer - 0x100;
-    } else {
+    }
+    else
+    {
         // Se o bit mais significativo não estiver definido, o número é positivo
         current_address->value = (int)buffer;
     }
