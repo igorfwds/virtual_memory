@@ -9,7 +9,6 @@ typedef struct memo_address
     int page_offset;
     int physical_address;
     int value;
-    int memo_time;
     struct memo_address *next;
     struct memo_address *prev;
 
@@ -22,13 +21,10 @@ void read_binary_file(const char *filename, memo_address *current_address);
 int len(memo_address *head);
 void add_to_a_list(memo_address **list, memo_address **list_tail, memo_address *current, int index);
 void remove_from_a_list(memo_address **list, memo_address **list_tail, int index);
-void advance_memo_time(memo_address **tlb_head, memo_address **page_table_head, int tlb_len, int page_table_len);
-int find_the_oldest(memo_address *list, int len);
 void append(memo_address **list, memo_address **list_tail, memo_address *current);
 void FIFO_replacement(memo_address **list, memo_address **list_tail, memo_address *current, int *fifo_index);
-void LRU_replacement(memo_address **list, memo_address **list_tail, memo_address *current, int *fifo_index);
+void LRU_replacement(memo_address **list, memo_address **list_tail, memo_address *current, int *LRU_index);
 
-int fifo_index = 0;
 
 int main(int argc, char **argv)
 {
@@ -131,7 +127,6 @@ int main(int argc, char **argv)
         read_binary_file("BACKING_STORE.bin", current_address);
         fprintf(output_file, "Physical address: %d ", current_address->physical_address);
         fprintf(output_file, "Value: %d\n", current_address->value);
-        advance_memo_time(&tlb, &page_table, tlb_len, page_table_len);
     }
     fclose(ptr_file);
 
@@ -222,7 +217,6 @@ void add_to_a_list(memo_address **list, memo_address **list_tail, memo_address *
 {
     memo_address *new_node = (memo_address *)malloc(sizeof(memo_address));
     memcpy(new_node, current, sizeof(memo_address));
-    new_node->memo_time = 0;
     new_node->next = NULL;
     new_node->prev = NULL;
 
@@ -305,7 +299,6 @@ void append(memo_address **list, memo_address **list_tail, memo_address *current
     }
 
     memcpy(new_node, current, sizeof(memo_address));
-    new_node->memo_time = 0;
     new_node->next = NULL;
     new_node->prev = NULL;
 
@@ -322,22 +315,6 @@ void append(memo_address **list, memo_address **list_tail, memo_address *current
     }
 }
 
-void advance_memo_time(memo_address **tlb_head, memo_address **page_table_head, int tlb_len, int page_table_len)
-{
-    memo_address *aux = *tlb_head;
-    while (aux != NULL)
-    {
-        aux->memo_time++;
-        aux = aux->next;
-    }
-
-    memo_address *temp = *page_table_head;
-    while (temp != NULL)
-    {
-        temp->memo_time++;
-        temp = temp->next;
-    }
-}
 
 int len(memo_address *head)
 {
@@ -348,24 +325,6 @@ int len(memo_address *head)
         head = head->next;
     }
     return count;
-}
-
-int find_the_oldest(memo_address *list, int len)
-{
-    memo_address *temp = list;
-    int oldest_index = 0;
-    int oldest_time = temp->memo_time;
-    for (int i = 0; i < len; i++)
-    {
-        if (temp->memo_time < oldest_time)
-        {
-            oldest_time = temp->memo_time;
-            oldest_index = i;
-        }
-        temp = temp->next;
-    }
-
-    return oldest_index;
 }
 
 void FIFO_replacement(memo_address **list, memo_address **list_tail, memo_address *current, int *fifo_index)
@@ -384,14 +343,13 @@ void FIFO_replacement(memo_address **list, memo_address **list_tail, memo_addres
         temp->page_offset = current->page_offset;
         temp->physical_address = current->physical_address;
         temp->value = current->value;
-        temp->memo_time = 0;
     }
 
     *fifo_index = (*fifo_index + 1) % len(*list);
 }
 
-void LRU_replacement(memo_address **list, memo_address **list_tail, memo_address *current, int *fifo_index)
+void LRU_replacement(memo_address **list, memo_address **list_tail, memo_address *current, int *LRU_index)
 {
-    printf("LRU replacement\n");
+    
 }
 
