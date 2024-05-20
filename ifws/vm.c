@@ -8,9 +8,8 @@ typedef struct memo_address
     int page_number;
     int page_offset;
     int physical_address;
-    int tlb_position;
-    int pt_position;
     int value;
+    int memo_time;
     struct memo_address *next;
     struct memo_address *prev;
 
@@ -18,24 +17,42 @@ typedef struct memo_address
 
 void count_file_lines(char *line, FILE *ptr_file, int *lines);
 void read_address(FILE *file, memo_address **address);
-void add_to_tlb(memo_address **tlb, memo_address **tail_tlb, int page_number, memo_address **current);
-void remove_from_tlb(memo_address **tlb, memo_address **tail_tlb);
-void add_to_page_table(memo_address **pt, memo_address **tail_pt, int page_number, memo_address **current);
-void remove_from_page_table(memo_address **pt, memo_address **tail_pt, int position);
 int check_list(memo_address *list, int page_number);
 void read_binary_file(const char *filename, memo_address *current_address);
+int len(memo_address *head);
+void add_to_a_list(memo_address **list, memo_address **list_tail, memo_address *current, int index);
+void remove_from_a_list(memo_address **list, memo_address **list_tail, int index);
+void advance_memo_time(memo_address **tlb_head, memo_address **page_table_head, int tlb_len, int page_table_len);
+int find_the_oldest(memo_address *list, int len);
+void append(memo_address **list, memo_address **list_tail, memo_address *current);
+void FIFO_replacement(memo_address **list, memo_address **list_tail, memo_address *current, int *fifo_index);
+void LRU_replacement(memo_address **list, memo_address **list_tail, memo_address *current, int *fifo_index);
+
+int fifo_index = 0;
 
 int main(int argc, char **argv)
 {
-    int i, tlb_position, pt_position;
+    int i;
     int tlb_hit = 0;
     float tlb_hit_rate;
     char *line = (char *)malloc(1000000 * sizeof(char));
     int lines = 0;
     int page_faults = 0;
     float page_fault_rate;
+    int tlb_len, page_table_len;
+    int fifo_index_tlb = 0;
+    int fifo_index_page_table = 0;
+
+    int *tlb_position = (int *)malloc(sizeof(int));
+    int *page_table_position = (int *)malloc(sizeof(int));
 
     memo_address *current_address = (memo_address *)malloc(sizeof(memo_address));
+    if (current_address == NULL)
+    {
+        perror("Failed to allocate memory");
+        exit(EXIT_FAILURE);
+    }
+
     memo_address *tlb = NULL;
     memo_address *tlb_tail = NULL;
     memo_address *page_table = NULL;
@@ -43,77 +60,92 @@ int main(int argc, char **argv)
 
     if (argc < 2)
     {
-        printf("Por favor, forneça o nome do arquivo como argumento.\n");
+        printf("Por favor, forneça os parametros como argumento.\n");
         return 1;
     }
 
     FILE *ptr_file = fopen(argv[1], "r");
+    FILE *output_file = fopen("correct.txt", "w");
     if (ptr_file == NULL)
     {
-        printf("Erro ao abrir o arquivo.\n");
+        perror("Erro ao abrir o arquivo");
         return 1;
     }
 
     count_file_lines(line, ptr_file, &lines);
-
     for (i = 0; i < lines; i++)
     {
         read_address(ptr_file, &current_address);
-        printf("\nVirtual address: %d ", current_address->virtual_address);
-        tlb_position = check_list(tlb, current_address->page_number);
-        if (tlb_position <= 15 && tlb_position >= 0)//TLB HIT
+        fprintf(output_file, "Virtual address: %d ", current_address->virtual_address);
+
+        *tlb_position = check_list(tlb, current_address->page_number);
+        tlb_len = len(tlb);
+        if (*tlb_position != -1) // TLB HIT
         {
             tlb_hit++;
-            current_address->tlb_position = tlb_position;
+            fprintf(output_file, "TLB: %d ", *tlb_position);
         }
-        else //TLB MISS
+        else // TLB MISS
         {
-            pt_position = check_list(page_table, current_address->page_number);
-            if (pt_position <= 127 && pt_position >= 0) //PAGE TABLE HIT
+            *page_table_position = check_list(page_table, current_address->page_number);
+            page_table_len = len(page_table);
+            if (*page_table_position != -1) // PAGE TABLE HIT
             {
-                add_to_tlb(&tlb, &tlb_tail, current_address->page_number, &current_address);
-                current_address->pt_position = page_table_tail->pt_position ;
-                current_address->tlb_position = page_table_tail->tlb_position ;
-                if (current_address->tlb_position > 15)
+                if (tlb_len < 16)
                 {
-                    remove_from_tlb(&tlb, &tlb_tail);
+                    append(&tlb, &tlb_tail, current_address);
                 }
+                else
+                {
+                    FIFO_replacement(&tlb, &tlb_tail, current_address, &fifo_index_tlb);
+                }
+                *tlb_position = check_list(tlb, current_address->page_number);
+                fprintf(output_file, "TLB: %d ", *tlb_position);
             }
-            else //PAGE FAULT
+            else // PAGE FAULT
             {
-                add_to_page_table(&page_table, &page_table_tail, current_address->page_number, &current_address);
-                if(current_address->pt_position > 127)
-                {
-                    remove_from_page_table(&page_table, &page_table_tail, 0);
-                }
-                add_to_tlb(&tlb, &tlb_tail, current_address->page_number, &current_address);
-                if (current_address->tlb_position > 15)
-                {
-                    remove_from_tlb(&tlb, &tlb_tail);
-                }
                 page_faults++;
+                if (page_table_len < 128)
+                {
+                    append(&page_table, &page_table_tail, current_address);
+                }
+                else
+                {
+                    strcmp(argv[2], "fifo") == 0 ? FIFO_replacement(&page_table, &page_table_tail, current_address, &fifo_index_page_table) : LRU_replacement(&page_table, &page_table_tail, current_address, &fifo_index_page_table);
+                }
+                if (tlb_len < 16)
+                {
+                    append(&tlb, &tlb_tail, current_address);
+                }
+                else
+                {
+                    FIFO_replacement(&tlb, &tlb_tail, current_address, &fifo_index_tlb);
+                }
+                *tlb_position = check_list(tlb, current_address->page_number);
+                fprintf(output_file, "TLB: %d ", *tlb_position);
             }
         }
-        // printf("\n\tPT POSITION: %d\n", current_address->pt_position);
+        *page_table_position = check_list(page_table, current_address->page_number);
 
-        current_address->physical_address = current_address->page_offset + ((current_address->pt_position) * 256);
+        current_address->physical_address = current_address->page_offset + (*page_table_position * 256);
         read_binary_file("BACKING_STORE.bin", current_address);
-        printf("TLB: %d ", current_address->tlb_position);
-        printf("Physical address: %d ", current_address->physical_address);
-        printf("Value: %d", current_address->value);
+        fprintf(output_file, "Physical address: %d ", current_address->physical_address);
+        fprintf(output_file, "Value: %d\n", current_address->value);
+        advance_memo_time(&tlb, &page_table, tlb_len, page_table_len);
     }
     fclose(ptr_file);
 
-    page_fault_rate = ((float)page_faults/lines);
-    tlb_hit_rate = ((float)tlb_hit/lines);
+    page_fault_rate = ((float)page_faults / lines);
+    tlb_hit_rate = ((float)tlb_hit / lines);
 
-    printf("\nNumber of Translated Addresses = %d", lines);
-    printf("\nPage Faults = %d", page_faults);
-    printf("\nPage Fault Rate = %.3f", page_fault_rate);
-    printf("\nTLB Hits = %d", tlb_hit);
-    printf("\nTLB Hit Rate = %.3f", tlb_hit_rate);
+    fprintf(output_file, "Number of Translated Addresses = %d", lines);
+    fprintf(output_file, "\nPage Faults = %d", page_faults);
+    fprintf(output_file, "\nPage Fault Rate = %.3f", page_fault_rate);
+    fprintf(output_file, "\nTLB Hits = %d", tlb_hit);
+    fprintf(output_file, "\nTLB Hit Rate = %.3f", tlb_hit_rate);
+    fclose(output_file);
 
-
+    free(line);
     return 0;
 }
 
@@ -129,145 +161,11 @@ void count_file_lines(char *line, FILE *ptr_file, int *lines)
 
 void read_address(FILE *file, memo_address **address)
 {
+    *address = (memo_address *)malloc(sizeof(memo_address));
     fscanf(file, "%d", &((*address)->virtual_address));
     (*address)->virtual_address = ((*address)->virtual_address) & 0xFFFF;
     (*address)->page_number = ((*address)->virtual_address) >> 8;
     (*address)->page_offset = ((*address)->virtual_address) & 0xFF;
-    // printf("%d %d", (*address)->page_number, (*address)->page_offset );
-}
-
-void add_to_tlb(memo_address **tlb, memo_address **tail_tlb, int page_number, memo_address **current)
-{
-    memo_address *new_node = (memo_address *)malloc(sizeof(memo_address));
-    new_node->page_number = page_number;
-    new_node->next = NULL;
-    if (*tail_tlb != NULL)
-    {
-        new_node->tlb_position = (*tail_tlb)->tlb_position + 1;
-        (*tail_tlb)->next = new_node;
-        new_node->prev = *tail_tlb;
-    }
-    else
-    {
-        new_node->tlb_position = 0;
-        *tlb = new_node;
-    }
-    *tail_tlb = new_node;
-    new_node->next = NULL;
-    (*current)->tlb_position = new_node->tlb_position;
-}
-
-void remove_from_tlb(memo_address **tlb, memo_address **tail_tlb)
-{
-    if (*tlb == NULL)
-    {
-        printf("TLB está vazia.\n");
-        return;
-    }
-
-    memo_address *temp = *tlb;
-    *tlb = (*tlb)->next;
-    if (*tlb != NULL)
-    {
-        (*tlb)->prev = NULL;
-    }
-    else
-    {
-        *tail_tlb = NULL;
-    }
-    free(temp);
-    
-    memo_address *aux = *tlb;
-    while (aux != NULL)
-    {
-        (aux)->tlb_position--;
-        aux = (aux)->next;
-    }
-}
-void add_to_page_table(memo_address **pt, memo_address **tail_pt, int page_number, memo_address **current)
-{
-    memo_address *new_node = (memo_address *)malloc(sizeof(memo_address));
-    new_node->page_number = page_number;
-    new_node->next = NULL;
-    new_node->prev = *tail_pt;
-
-    if(new_node != NULL)
-    {
-        if(*pt == NULL)
-        {
-            new_node->pt_position = 0;
-            *pt = new_node;
-            (*tail_pt) = new_node;
-            new_node->prev = NULL;
-        }
-        else
-        {
-            new_node->pt_position = (*tail_pt)->pt_position + 1;
-            (*tail_pt)->next = new_node;
-            new_node->prev = *tail_pt;
-            (*tail_pt) = new_node;
-        }
-        new_node->next = NULL;
-    }
-    (*current)->pt_position = new_node->pt_position;
-}
-
-void remove_from_page_table(memo_address **pt, memo_address **tail_pt, int position)
-{
-    if (*pt == NULL)
-    {
-        printf("A tabela de páginas está vazia.\n");
-        return;
-    }
-
-    memo_address *temp = *pt;
-
-    if (position == 0)
-    {
-        *pt = temp->next;
-        if (*pt != NULL)
-        {
-            (*pt)->prev = NULL;
-        }
-        else
-        {
-            *tail_pt = NULL;
-        }
-        free(temp);
-    }
-    else
-    {
-        for (int i = 0; temp != NULL && i < position - 1; i++)
-        {
-            temp = temp->next;
-        }
-
-        if (temp == NULL || temp->next == NULL)
-        {
-            return;
-        }
-
-        memo_address *next = temp->next->next;
-
-        free(temp->next);
-
-        temp->next = next;
-
-        if (next != NULL)
-        {
-            next->prev = temp;
-        }
-        else
-        {
-            *tail_pt = temp;
-        }
-    }
-
-    memo_address *aux = *pt;
-    while (aux != NULL) {
-        aux->pt_position--;
-        aux = aux->next;
-    }
 }
 
 int check_list(memo_address *list, int page_number)
@@ -319,3 +217,181 @@ void read_binary_file(const char *filename, memo_address *current_address)
 
     fclose(binary_file);
 }
+
+void add_to_a_list(memo_address **list, memo_address **list_tail, memo_address *current, int index)
+{
+    memo_address *new_node = (memo_address *)malloc(sizeof(memo_address));
+    memcpy(new_node, current, sizeof(memo_address));
+    new_node->memo_time = 0;
+    new_node->next = NULL;
+    new_node->prev = NULL;
+
+    if (*list == NULL)
+    {
+        *list = new_node;
+        *list_tail = new_node;
+    }
+    else
+    {
+        memo_address *temp = *list;
+        for (int i = 0; i < index && temp->next != NULL; i++)
+        {
+            temp = temp->next;
+        }
+
+        if (temp->next != NULL)
+        {
+            new_node->next = temp->next;
+            temp->next->prev = new_node;
+        }
+        temp->next = new_node;
+        new_node->prev = temp;
+
+        if (new_node->next == NULL)
+        {
+            *list_tail = new_node;
+        }
+    }
+}
+
+void remove_from_a_list(memo_address **list, memo_address **list_tail, int index)
+{
+    if (*list == NULL)
+    {
+        printf("A lista está vazia.\n");
+        return;
+    }
+
+    memo_address *temp = *list;
+    for (int i = 0; i < index && temp != NULL; i++)
+    {
+        temp = temp->next;
+    }
+
+    if (temp == NULL)
+    {
+        printf("Índice fora dos limites.\n");
+        return;
+    }
+
+    if (temp->prev != NULL)
+    {
+        temp->prev->next = temp->next;
+    }
+    else
+    {
+        *list = temp->next;
+    }
+
+    if (temp->next != NULL)
+    {
+        temp->next->prev = temp->prev;
+    }
+    else
+    {
+        *list_tail = temp->prev;
+    }
+
+    free(temp);
+}
+
+void append(memo_address **list, memo_address **list_tail, memo_address *current)
+{
+    memo_address *new_node = (memo_address *)malloc(sizeof(memo_address));
+    if (new_node == NULL)
+    {
+        perror("Failed to allocate memory");
+        exit(EXIT_FAILURE);
+    }
+
+    memcpy(new_node, current, sizeof(memo_address));
+    new_node->memo_time = 0;
+    new_node->next = NULL;
+    new_node->prev = NULL;
+
+    if (*list == NULL)
+    {
+        *list = new_node;
+        *list_tail = new_node;
+    }
+    else
+    {
+        (*list_tail)->next = new_node;
+        new_node->prev = *list_tail;
+        *list_tail = new_node;
+    }
+}
+
+void advance_memo_time(memo_address **tlb_head, memo_address **page_table_head, int tlb_len, int page_table_len)
+{
+    memo_address *aux = *tlb_head;
+    while (aux != NULL)
+    {
+        aux->memo_time++;
+        aux = aux->next;
+    }
+
+    memo_address *temp = *page_table_head;
+    while (temp != NULL)
+    {
+        temp->memo_time++;
+        temp = temp->next;
+    }
+}
+
+int len(memo_address *head)
+{
+    int count = 0;
+    while (head != NULL)
+    {
+        count++;
+        head = head->next;
+    }
+    return count;
+}
+
+int find_the_oldest(memo_address *list, int len)
+{
+    memo_address *temp = list;
+    int oldest_index = 0;
+    int oldest_time = temp->memo_time;
+    for (int i = 0; i < len; i++)
+    {
+        if (temp->memo_time < oldest_time)
+        {
+            oldest_time = temp->memo_time;
+            oldest_index = i;
+        }
+        temp = temp->next;
+    }
+
+    return oldest_index;
+}
+
+void FIFO_replacement(memo_address **list, memo_address **list_tail, memo_address *current, int *fifo_index)
+{
+
+    memo_address *temp = *list;
+    for (int i = 0; i < *fifo_index && temp != NULL; i++)
+    {
+        temp = temp->next;
+    }
+
+    if (temp != NULL)
+    {
+        temp->virtual_address = current->virtual_address;
+        temp->page_number = current->page_number;
+        temp->page_offset = current->page_offset;
+        temp->physical_address = current->physical_address;
+        temp->value = current->value;
+        temp->memo_time = 0;
+    }
+
+    *fifo_index = (*fifo_index + 1) % len(*list);
+}
+
+void LRU_replacement(memo_address **list, memo_address **list_tail, memo_address *current, int *fifo_index)
+{
+    printf("LRU replacement\n");
+}
+
