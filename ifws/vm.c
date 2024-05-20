@@ -126,6 +126,7 @@ void count_file_lines(char *line, FILE *ptr_file, int *lines)
     }
     rewind(ptr_file);
 }
+
 void read_address(FILE *file, memo_address **address)
 {
     fscanf(file, "%d", &((*address)->virtual_address));
