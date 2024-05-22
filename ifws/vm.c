@@ -26,9 +26,8 @@ void advance_memo_time(memo_address **tlb_head, memo_address **page_table_head, 
 int find_the_oldest(memo_address *list, int len);
 void append(memo_address **list, memo_address **list_tail, memo_address *current);
 void FIFO_replacement(memo_address **list, memo_address **list_tail, memo_address *current, int *fifo_index);
-void LRU_replacement(memo_address **list, memo_address **list_tail, memo_address *current, int *fifo_index);
+void LRU_replacement(memo_address **list, memo_address **list_tail, memo_address *current, int *LRU_index);
 
-int fifo_index = 0;
 
 int main(int argc, char **argv)
 {
@@ -42,6 +41,7 @@ int main(int argc, char **argv)
     int tlb_len, page_table_len;
     int fifo_index_tlb = 0;
     int fifo_index_page_table = 0;
+    int LRU_index_page_table = 0;
 
     int *tlb_position = (int *)malloc(sizeof(int));
     int *page_table_position = (int *)malloc(sizeof(int));
@@ -111,7 +111,7 @@ int main(int argc, char **argv)
                 }
                 else
                 {
-                    strcmp(argv[2], "fifo") == 0 ? FIFO_replacement(&page_table, &page_table_tail, current_address, &fifo_index_page_table) : LRU_replacement(&page_table, &page_table_tail, current_address, &fifo_index_page_table);
+                    strcmp(argv[2], "fifo") == 0 ? FIFO_replacement(&page_table, &page_table_tail, current_address, &fifo_index_page_table) : LRU_replacement(&page_table, &page_table_tail, current_address, &LRU_index_page_table);
                 }
                 if (tlb_len < 16)
                 {
@@ -390,7 +390,7 @@ void FIFO_replacement(memo_address **list, memo_address **list_tail, memo_addres
     *fifo_index = (*fifo_index + 1) % len(*list);
 }
 
-void LRU_replacement(memo_address **list, memo_address **list_tail, memo_address *current, int *fifo_index)
+void LRU_replacement(memo_address **list, memo_address **list_tail, memo_address *current, int *LRU_index)
 {
     printf("LRU replacement\n");
 }
