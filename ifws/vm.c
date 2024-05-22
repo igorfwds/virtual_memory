@@ -38,6 +38,7 @@ int main(int argc, char **argv)
     int tlb_len, page_table_len;
     int fifo_index_tlb = 0;
     int fifo_index_page_table = 0;
+    int LRU_index_page_table = 0;
 
     int *tlb_position = (int *)malloc(sizeof(int));
     int *page_table_position = (int *)malloc(sizeof(int));
@@ -107,7 +108,7 @@ int main(int argc, char **argv)
                 }
                 else
                 {
-                    strcmp(argv[2], "fifo") == 0 ? FIFO_replacement(&page_table, &page_table_tail, current_address, &fifo_index_page_table) : LRU_replacement(&page_table, &page_table_tail, current_address, &fifo_index_page_table);
+                    strcmp(argv[2], "fifo") == 0 ? FIFO_replacement(&page_table, &page_table_tail, current_address, &fifo_index_page_table) : LRU_replacement(&page_table, &page_table_tail, current_address, &LRU_index_page_table);
                 }
                 if (tlb_len < 16)
                 {
