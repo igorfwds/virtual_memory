@@ -2,28 +2,33 @@
 #include <stdlib.h>
 #include <string.h>
 
-typedef struct memo_address
+typedef struct memory_address
 {
     int virtual_address;
     int page_number;
     int page_offset;
     int physical_address;
     int value;
-    struct memo_address *next;
-    struct memo_address *prev;
+    int time_in_memory;
+    struct memory_address *next;
+    struct memory_address *prev;
 
-} memo_address;
+} memory_address;
 
 void count_file_lines(char *line, FILE *ptr_file, int *lines);
-void read_address(FILE *file, memo_address **address);
-int check_list(memo_address *list, int page_number);
-void read_binary_file(const char *filename, memo_address *current_address);
-int len(memo_address *head);
-void add_to_a_list(memo_address **list, memo_address **list_tail, memo_address *current, int index);
-void remove_from_a_list(memo_address **list, memo_address **list_tail, int index);
-void append(memo_address **list, memo_address **list_tail, memo_address *current);
-void FIFO_replacement(memo_address **list, memo_address **list_tail, memo_address *current, int *fifo_index);
-void LRU_replacement(memo_address **list, memo_address **list_tail, memo_address *current, int *LRU_index);
+void read_address(FILE *file, memory_address **address);
+int check_list(memory_address *list, int page_number);
+void read_binary_file(const char *filename, memory_address *current_address);
+int len(memory_address *head);
+void add_to_a_list(memory_address **list, memory_address **list_tail, memory_address *current, int index);
+void remove_from_a_list(memory_address **list, memory_address **list_tail, int index);
+void append(memory_address **list, memory_address **list_tail, memory_address *current);
+void FIFO_replacement(memory_address **list, memory_address **list_tail, memory_address *current, int *fifo_index);
+void LRU_replacement(memory_address **list, memory_address **list_tail, memory_address *current, int *LRU_index);
+void reset_time_in_memory(memory_address **list, memory_address **list_tail, int index);
+void update_time_in_memory(memory_address **list, memory_address **list_tail);
+void find_next_LRU_index(memory_address **list, memory_address **list_tail, int *LRU_index);
+
 
 
 int main(int argc, char **argv)
@@ -43,17 +48,17 @@ int main(int argc, char **argv)
     int *tlb_position = (int *)malloc(sizeof(int));
     int *page_table_position = (int *)malloc(sizeof(int));
 
-    memo_address *current_address = (memo_address *)malloc(sizeof(memo_address));
+    memory_address *current_address = (memory_address *)malloc(sizeof(memory_address));
     if (current_address == NULL)
     {
         perror("Failed to allocate memory");
         exit(EXIT_FAILURE);
     }
 
-    memo_address *tlb = NULL;
-    memo_address *tlb_tail = NULL;
-    memo_address *page_table = NULL;
-    memo_address *page_table_tail = NULL;
+    memory_address *tlb = NULL;
+    memory_address *tlb_tail = NULL;
+    memory_address *page_table = NULL;
+    memory_address *page_table_tail = NULL;
 
     if (argc < 2)
     {
@@ -75,6 +80,11 @@ int main(int argc, char **argv)
         read_address(ptr_file, &current_address);
         fprintf(output_file, "Virtual address: %d ", current_address->virtual_address);
 
+        if (strcmp(argv[2],"lru") == 0)
+        {
+            find_next_LRU_index(&page_table, &page_table_tail, &LRU_index_page_table);
+        }
+
         *tlb_position = check_list(tlb, current_address->page_number);
         tlb_len = len(tlb);
         if (*tlb_position != -1) // TLB HIT
@@ -88,11 +98,12 @@ int main(int argc, char **argv)
             page_table_len = len(page_table);
             if (*page_table_position != -1) // PAGE TABLE HIT
             {
-                if (tlb_len < 16)
+                reset_time_in_memory(&page_table, &page_table_tail, *page_table_position);
+                if (tlb_len < 16) // TLB NOT FULL
                 {
                     append(&tlb, &tlb_tail, current_address);
                 }
-                else
+                else // TLB FULL
                 {
                     FIFO_replacement(&tlb, &tlb_tail, current_address, &fifo_index_tlb);
                 }
@@ -102,19 +113,21 @@ int main(int argc, char **argv)
             else // PAGE FAULT
             {
                 page_faults++;
-                if (page_table_len < 128)
+                if (page_table_len < 128) // PAGE TABLE NOT FULL
                 {
                     append(&page_table, &page_table_tail, current_address);
                 }
-                else
+                else // PAGE TABLE FULL
                 {
-                    strcmp(argv[2], "fifo") == 0 ? FIFO_replacement(&page_table, &page_table_tail, current_address, &fifo_index_page_table) : LRU_replacement(&page_table, &page_table_tail, current_address, &LRU_index_page_table);
+                    strcmp(argv[2], "fifo") == 0 ? 
+                    FIFO_replacement(&page_table, &page_table_tail, current_address, &fifo_index_page_table) : 
+                    LRU_replacement(&page_table, &page_table_tail, current_address, &LRU_index_page_table);
                 }
-                if (tlb_len < 16)
+                if (tlb_len < 16) // TLB NOT FULL
                 {
                     append(&tlb, &tlb_tail, current_address);
                 }
-                else
+                else // TLB FULL
                 {
                     FIFO_replacement(&tlb, &tlb_tail, current_address, &fifo_index_tlb);
                 }
@@ -122,6 +135,12 @@ int main(int argc, char **argv)
                 fprintf(output_file, "TLB: %d ", *tlb_position);
             }
         }
+
+        if(strcmp(argv[2], "lru") == 0)
+        {
+            update_time_in_memory(&page_table, &page_table_tail);
+        }
+        
         *page_table_position = check_list(page_table, current_address->page_number);
 
         current_address->physical_address = current_address->page_offset + (*page_table_position * 256);
@@ -155,18 +174,18 @@ void count_file_lines(char *line, FILE *ptr_file, int *lines)
     rewind(ptr_file);
 }
 
-void read_address(FILE *file, memo_address **address)
+void read_address(FILE *file, memory_address **address)
 {
-    *address = (memo_address *)malloc(sizeof(memo_address));
+    *address = (memory_address *)malloc(sizeof(memory_address));
     fscanf(file, "%d", &((*address)->virtual_address));
     (*address)->virtual_address = ((*address)->virtual_address) & 0xFFFF;
     (*address)->page_number = ((*address)->virtual_address) >> 8;
     (*address)->page_offset = ((*address)->virtual_address) & 0xFF;
 }
 
-int check_list(memo_address *list, int page_number)
+int check_list(memory_address *list, int page_number)
 {
-    memo_address *current = list;
+    memory_address *current = list;
     int position = 0;
     while (current != NULL)
     {
@@ -180,7 +199,7 @@ int check_list(memo_address *list, int page_number)
     return -1;
 }
 
-void read_binary_file(const char *filename, memo_address *current_address)
+void read_binary_file(const char *filename, memory_address *current_address)
 {
     FILE *binary_file = fopen(filename, "r");
     if (binary_file == NULL)
@@ -214,10 +233,10 @@ void read_binary_file(const char *filename, memo_address *current_address)
     fclose(binary_file);
 }
 
-void add_to_a_list(memo_address **list, memo_address **list_tail, memo_address *current, int index)
+void add_to_a_list(memory_address **list, memory_address **list_tail, memory_address *current, int index)
 {
-    memo_address *new_node = (memo_address *)malloc(sizeof(memo_address));
-    memcpy(new_node, current, sizeof(memo_address));
+    memory_address *new_node = (memory_address *)malloc(sizeof(memory_address));
+    memcpy(new_node, current, sizeof(memory_address));
     new_node->next = NULL;
     new_node->prev = NULL;
 
@@ -228,7 +247,7 @@ void add_to_a_list(memo_address **list, memo_address **list_tail, memo_address *
     }
     else
     {
-        memo_address *temp = *list;
+        memory_address *temp = *list;
         for (int i = 0; i < index && temp->next != NULL; i++)
         {
             temp = temp->next;
@@ -249,7 +268,7 @@ void add_to_a_list(memo_address **list, memo_address **list_tail, memo_address *
     }
 }
 
-void remove_from_a_list(memo_address **list, memo_address **list_tail, int index)
+void remove_from_a_list(memory_address **list, memory_address **list_tail, int index)
 {
     if (*list == NULL)
     {
@@ -257,7 +276,7 @@ void remove_from_a_list(memo_address **list, memo_address **list_tail, int index
         return;
     }
 
-    memo_address *temp = *list;
+    memory_address *temp = *list;
     for (int i = 0; i < index && temp != NULL; i++)
     {
         temp = temp->next;
@@ -290,16 +309,17 @@ void remove_from_a_list(memo_address **list, memo_address **list_tail, int index
     free(temp);
 }
 
-void append(memo_address **list, memo_address **list_tail, memo_address *current)
+void append(memory_address **list, memory_address **list_tail, memory_address *current)
 {
-    memo_address *new_node = (memo_address *)malloc(sizeof(memo_address));
+    memory_address *new_node = (memory_address *)malloc(sizeof(memory_address));
     if (new_node == NULL)
     {
         perror("Failed to allocate memory");
         exit(EXIT_FAILURE);
     }
 
-    memcpy(new_node, current, sizeof(memo_address));
+    memcpy(new_node, current, sizeof(memory_address));
+    new_node->time_in_memory = 0;
     new_node->next = NULL;
     new_node->prev = NULL;
 
@@ -317,7 +337,7 @@ void append(memo_address **list, memo_address **list_tail, memo_address *current
 }
 
 
-int len(memo_address *head)
+int len(memory_address *head)
 {
     int count = 0;
     while (head != NULL)
@@ -328,10 +348,10 @@ int len(memo_address *head)
     return count;
 }
 
-void FIFO_replacement(memo_address **list, memo_address **list_tail, memo_address *current, int *fifo_index)
+void FIFO_replacement(memory_address **list, memory_address **list_tail, memory_address *current, int *fifo_index)
 {
 
-    memo_address *temp = *list;
+    memory_address *temp = *list;
     for (int i = 0; i < *fifo_index && temp != NULL; i++)
     {
         temp = temp->next;
@@ -349,8 +369,73 @@ void FIFO_replacement(memo_address **list, memo_address **list_tail, memo_addres
     *fifo_index = (*fifo_index + 1) % len(*list);
 }
 
-void LRU_replacement(memo_address **list, memo_address **list_tail, memo_address *current, int *LRU_index)
+void LRU_replacement(memory_address **list, memory_address **list_tail, memory_address *current, int *LRU_index)
 {
-    
+    memory_address *temp = *list;
+    for (int y = 0; y < *LRU_index && temp != NULL; y++)
+    {
+        temp = temp->next;
+    }
+
+    if(temp != NULL){
+        temp->virtual_address = current->virtual_address;
+        temp->page_number = current->page_number;
+        temp->page_offset = current->page_offset;
+        temp->physical_address = current->physical_address;
+        temp->value = current->value;
+        temp->time_in_memory = 0;
+    }
+
+
+}
+
+void reset_time_in_memory(memory_address **list, memory_address **list_tail, int index)
+{
+    memory_address *temp = *list;
+    for (int i = 0; i < index && temp != NULL; i++)
+    {
+        temp = temp->next;
+    }
+
+    if (temp != NULL)
+    {
+        temp->time_in_memory = 0;
+    }
+}
+
+void update_time_in_memory(memory_address **list, memory_address **list_tail)
+{
+    memory_address *temp = *list;
+
+    if (temp != NULL)
+    {
+        while (temp != NULL)
+        {
+            temp->time_in_memory++;
+            temp = temp->next;
+        }
+    }
+
+}
+
+void find_next_LRU_index(memory_address **list, memory_address **list_tail, int *LRU_index)
+{
+    int max_time_index = 0;
+    int max_time = -1; 
+    int current_index = 0;
+    memory_address *temp = *list;
+
+    while (temp != NULL)
+    {
+        if (temp->time_in_memory > max_time)
+        {
+            max_time = temp->time_in_memory;
+            max_time_index = current_index;
+        }
+        temp = temp->next;
+        current_index++;
+    }
+
+    *LRU_index = max_time_index; 
 }
 
