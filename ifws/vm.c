@@ -20,14 +20,13 @@ void read_address(FILE *file, memory_address **address);
 int check_list(memory_address *list, int page_number);
 void read_binary_file(const char *filename, memory_address *current_address);
 int len(memory_address *head);
-void add_to_a_list(memory_address **list, memory_address **list_tail, memory_address *current, int index);
-void remove_from_a_list(memory_address **list, memory_address **list_tail, int index);
 void append(memory_address **list, memory_address **list_tail, memory_address *current);
 void FIFO_replacement(memory_address **list, memory_address **list_tail, memory_address *current, int *fifo_index);
 void LRU_replacement(memory_address **list, memory_address **list_tail, memory_address *current, int *LRU_index);
 void reset_time_in_memory(memory_address **list, memory_address **list_tail, int index);
 void update_time_in_memory(memory_address **list, memory_address **list_tail);
 void find_next_LRU_index(memory_address **list, memory_address **list_tail, int *LRU_index);
+void print_time_in_memory(memory_address **list);
 
 
 
@@ -47,6 +46,8 @@ int main(int argc, char **argv)
 
     int *tlb_position = (int *)malloc(sizeof(int));
     int *page_table_position = (int *)malloc(sizeof(int));
+    int debug_PT_hit = 0;
+    int tamanho_PT = 0;
 
     memory_address *current_address = (memory_address *)malloc(sizeof(memory_address));
     if (current_address == NULL)
@@ -80,10 +81,7 @@ int main(int argc, char **argv)
         read_address(ptr_file, &current_address);
         fprintf(output_file, "Virtual address: %d ", current_address->virtual_address);
 
-        if (strcmp(argv[2],"lru") == 0)
-        {
-            find_next_LRU_index(&page_table, &page_table_tail, &LRU_index_page_table);
-        }
+        
 
         *tlb_position = check_list(tlb, current_address->page_number);
         tlb_len = len(tlb);
@@ -98,6 +96,7 @@ int main(int argc, char **argv)
             page_table_len = len(page_table);
             if (*page_table_position != -1) // PAGE TABLE HIT
             {
+                debug_PT_hit++;
                 reset_time_in_memory(&page_table, &page_table_tail, *page_table_position);
                 if (tlb_len < 16) // TLB NOT FULL
                 {
@@ -111,14 +110,19 @@ int main(int argc, char **argv)
                 fprintf(output_file, "TLB: %d ", *tlb_position);
             }
             else // PAGE FAULT
-            {
+            {   
                 page_faults++;
                 if (page_table_len < 128) // PAGE TABLE NOT FULL
-                {
+                {   
+                    tamanho_PT++;
                     append(&page_table, &page_table_tail, current_address);
                 }
                 else // PAGE TABLE FULL
                 {
+                    if (strcmp(argv[2],"lru") == 0)
+                    {
+                        find_next_LRU_index(&page_table, &page_table_tail, &LRU_index_page_table);
+                    }
                     strcmp(argv[2], "fifo") == 0 ? 
                     FIFO_replacement(&page_table, &page_table_tail, current_address, &fifo_index_page_table) : 
                     LRU_replacement(&page_table, &page_table_tail, current_address, &LRU_index_page_table);
@@ -135,6 +139,17 @@ int main(int argc, char **argv)
                 fprintf(output_file, "TLB: %d ", *tlb_position);
             }
         }
+        if(strcmp(argv[2], "lru") == 0)
+        {
+            print_time_in_memory(&page_table);
+        }
+        // {
+        //     printf("\n%d LRU page table frame: %d -> %d --- %d  (%d adicionado a page table)", i+1, LRU_index_page_table, current_address->page_number, debug_PT_hit, tamanho_PT);
+        // }
+        // else
+        // {
+        //     printf("\n%d FIFO page table frame: %d -> %d %d", i, fifo_index_page_table, current_address->page_number, current_address->page_offset);
+        // }
 
         if(strcmp(argv[2], "lru") == 0)
         {
@@ -233,81 +248,8 @@ void read_binary_file(const char *filename, memory_address *current_address)
     fclose(binary_file);
 }
 
-void add_to_a_list(memory_address **list, memory_address **list_tail, memory_address *current, int index)
-{
-    memory_address *new_node = (memory_address *)malloc(sizeof(memory_address));
-    memcpy(new_node, current, sizeof(memory_address));
-    new_node->next = NULL;
-    new_node->prev = NULL;
 
-    if (*list == NULL)
-    {
-        *list = new_node;
-        *list_tail = new_node;
-    }
-    else
-    {
-        memory_address *temp = *list;
-        for (int i = 0; i < index && temp->next != NULL; i++)
-        {
-            temp = temp->next;
-        }
 
-        if (temp->next != NULL)
-        {
-            new_node->next = temp->next;
-            temp->next->prev = new_node;
-        }
-        temp->next = new_node;
-        new_node->prev = temp;
-
-        if (new_node->next == NULL)
-        {
-            *list_tail = new_node;
-        }
-    }
-}
-
-void remove_from_a_list(memory_address **list, memory_address **list_tail, int index)
-{
-    if (*list == NULL)
-    {
-        printf("A lista está vazia.\n");
-        return;
-    }
-
-    memory_address *temp = *list;
-    for (int i = 0; i < index && temp != NULL; i++)
-    {
-        temp = temp->next;
-    }
-
-    if (temp == NULL)
-    {
-        printf("Índice fora dos limites.\n");
-        return;
-    }
-
-    if (temp->prev != NULL)
-    {
-        temp->prev->next = temp->next;
-    }
-    else
-    {
-        *list = temp->next;
-    }
-
-    if (temp->next != NULL)
-    {
-        temp->next->prev = temp->prev;
-    }
-    else
-    {
-        *list_tail = temp->prev;
-    }
-
-    free(temp);
-}
 
 void append(memory_address **list, memory_address **list_tail, memory_address *current)
 {
@@ -439,3 +381,16 @@ void find_next_LRU_index(memory_address **list, memory_address **list_tail, int 
     *LRU_index = max_time_index; 
 }
 
+void print_time_in_memory(memory_address **list)
+{
+    FILE *new = fopen("time_in_memory.txt", "w"); 
+    memory_address *temp = *list;
+    int i = 1;
+    while (temp != NULL)
+    {
+        fprintf(new, "%d)Time in memory: %d\n",i , temp->time_in_memory);
+        i++;
+        temp = temp->next;
+    }
+    fclose(new);
+}
