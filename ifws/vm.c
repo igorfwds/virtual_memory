@@ -43,8 +43,6 @@ int main(int argc, char **argv)
 
     int *tlb_position = (int *)malloc(sizeof(int));
     int *page_table_position = (int *)malloc(sizeof(int));
-    int debug_PT_hit = 0;
-    int tamanho_PT = 0;
 
     memory_address *current_address = (memory_address *)malloc(sizeof(memory_address));
     if (current_address == NULL)
@@ -88,6 +86,20 @@ int main(int argc, char **argv)
             fprintf(output_file, "TLB: %d ", *tlb_position);
             reset_time_in_memory(&tlb, *tlb_position);
             *page_table_position = check_list(page_table, current_address->page_number);
+            if(*page_table_position == -1)
+            {
+                page_faults++;
+                if (page_table_len < 128) // PAGE TABLE NOT FULL
+                {
+                    append(&page_table, &page_table_tail, current_address);
+                }
+                else // PAGE TABLE FULL
+                {
+                    FIFO_replacement(&page_table, &page_table_tail, current_address, &fifo_index_page_table);
+                }
+            }
+            *page_table_position = check_list(page_table, current_address->page_number);
+            //se de
         }
         else // TLB MISS
         {
@@ -95,7 +107,6 @@ int main(int argc, char **argv)
             page_table_len = len(page_table);
             if (*page_table_position != -1) // PAGE TABLE HIT
             {
-                debug_PT_hit++;
                 if (tlb_len < 16) // TLB NOT FULL
                 {
                     append(&tlb, &tlb_tail, current_address);
@@ -113,7 +124,6 @@ int main(int argc, char **argv)
                 page_faults++;
                 if (page_table_len < 128) // PAGE TABLE NOT FULL
                 {
-                    tamanho_PT++;
                     append(&page_table, &page_table_tail, current_address);
                 }
                 else // PAGE TABLE FULL
@@ -360,3 +370,4 @@ void find_next_LRU_index(memory_address **list, int *LRU_index)
     }
     *LRU_index = max_time_index;
 }
+
