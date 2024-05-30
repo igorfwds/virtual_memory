@@ -160,6 +160,7 @@ int main(int argc, char **argv)
     fprintf(output_file, "\nPage Fault Rate = %.3f", page_fault_rate);
     fprintf(output_file, "\nTLB Hits = %d", tlb_hit);
     fprintf(output_file, "\nTLB Hit Rate = %.3f", tlb_hit_rate);
+    fprintf(output_file, "\n");
     fclose(output_file);
     free(line);
     return 0;
